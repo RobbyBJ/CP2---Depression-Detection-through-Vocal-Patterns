@@ -8,7 +8,7 @@ import noisereduce as nr
 # --- Step 0: Isolate Participant ---
 def isolate_participant_audio(y, sr, transcript_path):
     """
-    Uses the transcript CSV to keep ONLY Participant audio.
+    Uses the transcript CSV to isolate Participant audio.
     Replaces 'Ellie' (Interviewer) audio with silence or removes it.
     """
     if not os.path.exists(transcript_path):
@@ -132,6 +132,6 @@ def process_dataset(dataset_dir, out_dir):
 
 if __name__ == "__main__":
     # Update paths
-    DATASET_DIR = r"C:\Users\User\Desktop\DIAC-WOZ"
+    DATASET_DIR = r"C:\Users\User\Desktop\DAIC-WOZ"
     OUT_DIR = r"C:\Users\User\Desktop\processed"
     process_dataset(DATASET_DIR, OUT_DIR)

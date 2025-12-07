@@ -8,11 +8,11 @@ from tqdm import tqdm
 PROCESSED_AUDIO_DIR = r"C:\Users\User\Desktop\processed"
 
 # Paths to the label files from DIAC-WOZ folder
-TRAIN_LABELS = r"C:\Users\User\Desktop\DIAC-WOZ\train_split_Depression_AVEC2017.csv"
-DEV_LABELS = r"C:\Users\User\Desktop\DIAC-WOZ\dev_split_Depression_AVEC2017.csv"
+TRAIN_LABELS = r"C:\Users\User\Desktop\DAIC-WOZ\train_split_Depression_AVEC2017.csv"
+DEV_LABELS = r"C:\Users\User\Desktop\DAIC-WOZ\dev_split_Depression_AVEC2017.csv"
 
 # Output file
-OUTPUT_CSV = r"C:\Users\User\Desktop\segment_level_depression_dataset.csv"
+OUTPUT_CSV = r"C:\Users\User\Desktop\depression_dataset.csv"
 
 def calculate_jitter(f0):
     """Calculates local Jitter (pitch instability)."""
