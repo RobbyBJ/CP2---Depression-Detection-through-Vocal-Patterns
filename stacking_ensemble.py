@@ -135,16 +135,32 @@ print(f"   Recall:      {recall:.4f}")
 print(f"   Specificity: {spec:.4f}")
 
 # ==============================================
-# OPTIONAL: FIND BEST THRESHOLD
+# SAVE RESULTS TO CSV (THRESHOLD SWEEP)
 # ==============================================
-print("\n📊 Searching for better threshold (0.3–0.6)...")
+print("\n📊 Searching for better threshold (0.3–0.6) and saving results...")
+
+results = []
 for t in [0.3, 0.4, 0.5, 0.6]:
     preds_t = (probs >= t).astype(int)
     acc_t = accuracy_score(y_test, preds_t)
     f1_t = f1_score(y_test, preds_t)
     rec_t = recall_score(y_test, preds_t)
     spec_t = calculate_specificity(y_test, preds_t)
+    results.append({
+        "Threshold": t,
+        "Accuracy": acc_t,
+        "F1-Score": f1_t,
+        "Recall": rec_t,
+        "Specificity": spec_t
+    })
     print(f"   Threshold={t:.1f} | Acc={acc_t:.4f} | F1={f1_t:.4f} | Recall={rec_t:.4f} | Spec={spec_t:.4f}")
+
+# Convert results to DataFrame and save to CSV
+results_df = pd.DataFrame(results)
+results_csv_path = "stacking_results.csv"
+results_df.to_csv(results_csv_path, index=False)
+
+print(f"\n💾 Results saved to '{results_csv_path}'")
 
 # ==============================================
 # SAVE FINAL STACKING MODEL

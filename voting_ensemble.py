@@ -4,7 +4,9 @@ import joblib
 from sklearn.ensemble import VotingClassifier
 from sklearn.preprocessing import StandardScaler
 from sklearn.impute import SimpleImputer
-from sklearn.metrics import accuracy_score, classification_report, f1_score, confusion_matrix
+from sklearn.metrics import (
+    accuracy_score, classification_report, f1_score, confusion_matrix, precision_score
+)
 
 # ================= CONFIGURATION =================
 INPUT_CSV = r"C:\Users\User\Desktop\CP2\depression_dataset.csv"
@@ -74,23 +76,61 @@ X_test_prepared = scaler.transform(imputer.transform(X_test))
 # Fit ensemble
 ensemble.fit(X_train_prepared, y_train)
 
-# Predict
+# Predict (default threshold 0.5)
 y_pred = ensemble.predict(X_test_prepared)
 
 # ==============================================
-# EVALUATION
+# EVALUATION @ 0.5
 # ==============================================
 acc = accuracy_score(y_test, y_pred)
 f1 = f1_score(y_test, y_pred)
 spec = calculate_specificity(y_test, y_pred)
 report = classification_report(y_test, y_pred, output_dict=True)
 recall = report['1']['recall'] if '1' in report else 0.0
+prec = precision_score(y_test, y_pred, zero_division=0)
 
-print("\n🏆 ENSEMBLE PERFORMANCE (Voting) 🏆")
+print("\n🏆 ENSEMBLE PERFORMANCE (Voting, threshold=0.5) 🏆")
 print(f"   Accuracy:    {acc:.4f}")
 print(f"   F1-Score:    {f1:.4f}")
 print(f"   Recall:      {recall:.4f}")
+print(f"   Precision:   {prec:.4f}")
 print(f"   Specificity: {spec:.4f}")
 
+# ==============================================
+# THRESHOLD SWEEP (0.3–0.6) + SAVE TO CSV
+# ==============================================
+print("\n📊 Threshold sweep (0.3–0.6) and saving results...")
+
+probs = ensemble.predict_proba(X_test_prepared)[:, 1]
+results = []
+
+for t in [0.3, 0.4, 0.5, 0.6]:
+    preds_t = (probs >= t).astype(int)
+    acc_t = accuracy_score(y_test, preds_t)
+    f1_t = f1_score(y_test, preds_t)
+    rec_t = classification_report(y_test, preds_t, output_dict=True)['1']['recall'] if '1' in report else 0.0
+    prec_t = precision_score(y_test, preds_t, zero_division=0)
+    spec_t = calculate_specificity(y_test, preds_t)
+
+    results.append({
+        "Threshold": t,
+        "Accuracy": acc_t,
+        "F1-Score": f1_t,
+        "Recall": rec_t,
+        "Precision": prec_t,
+        "Specificity": spec_t
+    })
+
+    print(f"   Threshold={t:.1f} | Acc={acc_t:.4f} | F1={f1_t:.4f} | Recall={rec_t:.4f} | "
+          f"Precision={prec_t:.4f} | Spec={spec_t:.4f}")
+
+results_df = pd.DataFrame(results)
+csv_path = "voting_ensemble_results.csv"
+results_df.to_csv(csv_path, index=False)
+print(f"\n💾 Results saved to '{csv_path}'")
+
+# ==============================================
+# SAVE FINAL MODEL
+# ==============================================
 joblib.dump(ensemble, "final_ensemble_model.pkl")
 print("\n✅ Final Ensemble Model saved as 'final_ensemble_model.pkl'")

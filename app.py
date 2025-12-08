@@ -153,7 +153,7 @@ if model:
                 if pred == 1:
                     st.markdown(f"""
                         <div class="result-box depressed">
-                            <h1>DETECTED</h1>
+                            <h1>DEPRESSED</h1>
                             <p>Confidence: {confidence:.1f}%</p>
                         </div>
                     """, unsafe_allow_html=True)
