@@ -1,0 +1,6 @@
+Model,Best F1-Score,Best Params
+Random Forest,0.7564230636448758,"{'classifier__max_depth': 10, 'classifier__n_estimators': 200}"
+XGBoost,0.7341110657515174,"{'classifier__learning_rate': 0.05, 'classifier__max_depth': 4, 'classifier__n_estimators': 100}"
+Logistic Regression,0.723281201335314,"{'classifier__C': 0.01, 'classifier__solver': 'lbfgs'}"
+SVM,0.7070219606451588,"{'classifier__C': 1, 'classifier__kernel': 'rbf'}"
+KNN,0.5860104715118445,"{'classifier__n_neighbors': 9, 'classifier__weights': 'uniform'}"

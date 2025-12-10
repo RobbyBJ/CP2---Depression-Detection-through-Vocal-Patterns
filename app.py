@@ -6,10 +6,17 @@ import pandas as pd
 import joblib
 import matplotlib.pyplot as plt
 import librosa.display
+from scipy.stats import skew, kurtosis
 
 # ================= CONFIGURATION =================
-MODEL_PATH = "best_tuned_smote_Logistic_Regression.pkl" # Update this if needed
-SEGMENT_DURATION = 3.0 # Match your training segment length
+# 1. Point to your Best Stacking Model
+MODEL_PATH = "ensemble_models\stacking_ridge.pkl" 
+
+# 2. Sensitivity Threshold (Optimized for 0.35)
+THRESHOLD = 0.35 
+
+# 3. Audio Settings
+SEGMENT_DURATION = 3.0 
 SR = 16000
 # =================================================
 
@@ -29,52 +36,115 @@ st.markdown("""
 @st.cache_resource
 def load_model():
     if not os.path.exists(MODEL_PATH):
-        st.error(f"❌ Model not found: {MODEL_PATH}. Please run training first.")
+        st.error(f"❌ Model not found: {MODEL_PATH}. Please make sure the .pkl file is in the same folder.")
         return None
     return joblib.load(MODEL_PATH)
 
-def extract_features(y, sr):
+def extract_features_v2(y, sr):
     """
-    Extracts ONLY the 21 features present in 'depression_dataset.csv'.
+    Extracts the V2 Advanced Features (130+ features).
+    Matches 'extract_handcrafted_features_v2.py' exactly.
     """
-    features = {}
-    
-    # 1. Prosodic Features
-    f0 = librosa.yin(y, fmin=50, fmax=500, sr=sr)
-    f0_clean = f0[~np.isnan(f0)]
-    
-    if len(f0_clean) > 0:
-        features['pitch_mean'] = np.mean(f0_clean)
-        features['pitch_std'] = np.std(f0_clean)
-        features['jitter'] = np.mean(np.abs(np.diff(f0_clean))) / np.mean(f0_clean)
-    else:
-        features['pitch_mean'] = 0.0
-        features['pitch_std'] = 0.0
-        features['jitter'] = 0.0
+    try:
+        y_pre = librosa.effects.preemphasis(y)
 
-    # Simplified Shimmer (Amplitude variability)
-    rmse = librosa.feature.rms(y=y)[0]
-    if len(rmse) > 0 and np.mean(rmse) > 0:
-        features['shimmer'] = np.mean(np.abs(np.diff(rmse))) / np.mean(rmse)
-    else:
-        features['shimmer'] = 0.0
+        # --- 1. PROSODIC FEATURES ---
+        f0 = librosa.yin(y, fmin=50, fmax=500, sr=sr)
+        f0_clean = f0[~np.isnan(f0)]
+        
+        if len(f0_clean) > 0:
+            pitch_mean = np.mean(f0_clean)
+            pitch_std = np.std(f0_clean)
+            pitch_skew = skew(f0_clean)
+            pitch_kurt = kurtosis(f0_clean)
+            
+            rms = librosa.feature.rms(y=y)[0]
+            loudness_mean = np.mean(rms)
+            loudness_std = np.std(rms)
+            
+            jitter = np.mean(np.abs(np.diff(f0_clean))) / pitch_mean
+            shimmer = np.mean(np.abs(np.diff(rms))) / loudness_mean
+        else:
+            pitch_mean = pitch_std = pitch_skew = pitch_kurt = 0.0
+            jitter = shimmer = loudness_mean = loudness_std = 0.0
 
-    # 2. Spectral Features (Means only)
-    features['spectral_centroid'] = np.mean(librosa.feature.spectral_centroid(y=y, sr=sr))
-    features['spectral_rolloff'] = np.mean(librosa.feature.spectral_rolloff(y=y, sr=sr))
-    
-    # Using Spectral Contrast (Band 0) as 'spectral_flux' proxy to match your dataset logic
-    contrast = librosa.feature.spectral_contrast(y=y, sr=sr)
-    features['spectral_flux'] = np.mean(contrast[0]) 
-    
-    features['zcr'] = np.mean(librosa.feature.zero_crossing_rate(y))
+        # --- 2. SPECTRAL FEATURES ---
+        rms_frames = librosa.feature.rms(y=y)[0]
+        voiced_mask = rms_frames > 0.005
+        
+        def get_stats(feature_vector, prefix):
+            if len(feature_vector) == 0: return {}
+            
+            if feature_vector.shape[-1] == len(voiced_mask):
+                if feature_vector.ndim == 1:
+                    data = feature_vector[voiced_mask]
+                else:
+                    data = feature_vector[:, voiced_mask]
+            else:
+                data = feature_vector
 
-    # 3. MFCCs (1-13 Means only)
-    mfcc = librosa.feature.mfcc(y=y, sr=sr, n_mfcc=13)
-    for i in range(13):
-        features[f'mfcc_{i+1}'] = np.mean(mfcc[i])
+            if data.size == 0: 
+                return {f"{prefix}_mean": 0, f"{prefix}_std": 0, f"{prefix}_skew": 0, f"{prefix}_kurt": 0}
 
-    return features
+            return {
+                f"{prefix}_mean": np.mean(data),
+                f"{prefix}_std": np.std(data),
+                f"{prefix}_skew": np.mean(skew(data, axis=-1, bias=False)),
+                f"{prefix}_kurt": np.mean(kurtosis(data, axis=-1, bias=False))
+            }
+
+        spec_cent = librosa.feature.spectral_centroid(y=y, sr=sr)[0]
+        spec_roll = librosa.feature.spectral_rolloff(y=y, sr=sr)[0]
+        spec_bw   = librosa.feature.spectral_bandwidth(y=y, sr=sr)[0]
+        zcr       = librosa.feature.zero_crossing_rate(y)[0]
+        spec_cont = librosa.feature.spectral_contrast(y=y, sr=sr)[0]
+        spec_flat = librosa.feature.spectral_flatness(y=y)[0]
+
+        # --- 3. MFCC + DELTAS ---
+        mfcc = librosa.feature.mfcc(y=y_pre, sr=sr, n_mfcc=13)
+        mfcc_delta = librosa.feature.delta(mfcc)
+        mfcc_delta2 = librosa.feature.delta(mfcc, order=2)
+
+        # --- 4. BUILD DICTIONARY ---
+        features = {
+            "pitch_mean": pitch_mean, "pitch_std": pitch_std, 
+            "pitch_skew": pitch_skew, "pitch_kurt": pitch_kurt,
+            "jitter": jitter, "shimmer": shimmer,
+            "loudness_mean": loudness_mean, "loudness_std": loudness_std,
+            **get_stats(spec_cent, "spec_cent"),
+            **get_stats(spec_roll, "spec_roll"),
+            **get_stats(spec_bw, "spec_bw"),
+            **get_stats(zcr, "zcr"),
+            **get_stats(spec_cont, "spec_contrast"),
+            **get_stats(spec_flat, "spec_flatness"),
+        }
+
+        # MFCC Stats
+        if np.any(voiced_mask):
+             mfcc_masked = mfcc[:, voiced_mask]
+             d1_masked = mfcc_delta[:, voiced_mask]
+             d2_masked = mfcc_delta2[:, voiced_mask]
+        else:
+             mfcc_masked = mfcc
+             d1_masked = mfcc_delta
+             d2_masked = mfcc_delta2
+
+        for i in range(13):
+            features[f"mfcc_{i+1}_mean"] = np.mean(mfcc_masked[i])
+            features[f"mfcc_{i+1}_std"]  = np.std(mfcc_masked[i])
+            features[f"mfcc_{i+1}_skew"] = skew(mfcc_masked[i])
+            features[f"mfcc_{i+1}_kurt"] = kurtosis(mfcc_masked[i])
+            
+            features[f"mfcc_d_{i+1}_mean"] = np.mean(d1_masked[i])
+            features[f"mfcc_d_{i+1}_std"]  = np.std(d1_masked[i])
+            
+            features[f"mfcc_d2_{i+1}_mean"] = np.mean(d2_masked[i])
+            features[f"mfcc_d2_{i+1}_std"]  = np.std(d2_masked[i])
+
+        return features
+
+    except Exception as e:
+        return None
 
 def process_and_predict(audio_file, model):
     # Load Audio
@@ -88,13 +158,8 @@ def process_and_predict(audio_file, model):
     progress_bar = st.progress(0)
     num_segments = int(np.ceil(len(y) / seg_samples))
     
-    # Enforce Column Order (Critical for Scikit-Learn models)
-    expected_cols = [
-        'pitch_mean', 'pitch_std', 'jitter', 'shimmer', 
-        'spectral_centroid', 'spectral_rolloff', 'spectral_flux', 'zcr',
-        'mfcc_1', 'mfcc_2', 'mfcc_3', 'mfcc_4', 'mfcc_5', 'mfcc_6', 
-        'mfcc_7', 'mfcc_8', 'mfcc_9', 'mfcc_10', 'mfcc_11', 'mfcc_12', 'mfcc_13'
-    ]
+    # Store valid segments
+    valid_features = []
 
     for i in range(num_segments):
         start = i * seg_samples
@@ -105,31 +170,41 @@ def process_and_predict(audio_file, model):
         if len(y_seg) < seg_samples:
             y_seg = np.pad(y_seg, (0, seg_samples - len(y_seg)))
             
-        # Extract & Predict
-        feats = extract_features(y_seg, sr)
+        # Extract V2 Features
+        feats = extract_features_v2(y_seg, sr)
         
-        # Create DataFrame and Reorder Columns
-        df_seg = pd.DataFrame([feats])
-        df_seg = df_seg[expected_cols]  # <--- CRITICAL FIX
+        if feats:
+            valid_features.append(feats)
         
-        try:
-            prob = model.predict_proba(df_seg)[0][1]
-            probabilities.append(prob)
-        except:
-            pred = model.predict(df_seg)[0]
-            probabilities.append(float(pred))
-            
         progress_bar.progress((i + 1) / num_segments)
-
-    # Aggregate Results
-    avg_prob = np.mean(probabilities)
-    final_pred = 1 if avg_prob >= 0.5 else 0
     
-    return final_pred, avg_prob, y, sr, probabilities
+    if not valid_features:
+        return 0, 0.0, y, sr, []
+
+    # Create DataFrame
+    df_seg = pd.DataFrame(valid_features)
+    
+    # --- GET PREDICTIONS (Stacking/Ridge Logic) ---
+    # Ridge Classifier (Stacking Meta) uses decision_function, not predict_proba
+    if hasattr(model, "predict_proba"):
+        probs = model.predict_proba(df_seg)[:, 1]
+    else:
+        # Normalize decision function to 0-1 for visualization
+        scores = model.decision_function(df_seg)
+        probs = 1 / (1 + np.exp(-scores)) # Sigmoid to convert score to probability
+            
+    # Aggregate Results (Average Probability across all segments)
+    avg_prob = np.mean(probs)
+    
+    # --- APPLY THRESHOLD LOGIC ---
+    final_pred = 1 if avg_prob >= THRESHOLD else 0
+    
+    return final_pred, avg_prob, y, sr, probs
 
 # --- 3. FRONTEND UI ---
-st.title("🧠 AI Depression Detector (Voice Analysis)")
+st.title("🧠 AI Depression Detector")
 st.write("Upload a voice recording (.wav) to screen for potential depressive symptoms.")
+st.caption(f"Using Advanced Feature Extraction • Sensitivity Threshold: {THRESHOLD}")
 
 model = load_model()
 
@@ -144,42 +219,58 @@ if model:
             st.audio(uploaded_file, format='audio/wav')
             
             if st.button("Run Analysis", type="primary"):
-                with st.spinner("Analyzing voice biomarkers..."):
+                with st.spinner("Analyzing spectral texture & monotonicity..."):
                     pred, prob, y, sr, segment_probs = process_and_predict(uploaded_file, model)
                 
                 st.subheader("2. Result")
-                confidence = prob * 100 if pred == 1 else (1 - prob) * 100
                 
+                # Dynamic Confidence Display based on Threshold
                 if pred == 1:
+                    # Scale confidence relative to threshold for display
+                    display_conf = min(prob * 100, 99.9)
                     st.markdown(f"""
                         <div class="result-box depressed">
-                            <h1>DEPRESSED</h1>
-                            <p>Confidence: {confidence:.1f}%</p>
+                            <h1>AT RISK</h1>
+                            <p>Depression Signal Detected</p>
+                            <p>Confidence Score: {display_conf:.1f}%</p>
                         </div>
                     """, unsafe_allow_html=True)
+                    st.warning("⚠️ The model detected features consistent with flat affect and monotonicity.")
                 else:
+                    display_conf = (1 - prob) * 100
                     st.markdown(f"""
                         <div class="result-box healthy">
                             <h1>HEALTHY</h1>
-                            <p>Confidence: {confidence:.1f}%</p>
+                            <p>No Significant Indicators</p>
+                            <p>Healthy Confidence: {display_conf:.1f}%</p>
                         </div>
                     """, unsafe_allow_html=True)
+                    st.success("✅ Voice patterns appear within standard ranges.")
 
     with col2:
         if uploaded_file is not None and 'y' in locals():
             st.subheader("3. Clinical Insights")
             
-            st.markdown("**Waveform & Amplitude**")
+            st.markdown("**Waveform Analysis**")
             fig, ax = plt.subplots(figsize=(10, 2))
             librosa.display.waveshow(y, sr=sr, alpha=0.6, ax=ax)
             st.pyplot(fig)
             
-            st.markdown("**Analysis over Time**")
-            chart_data = pd.DataFrame({
-                "Segment": range(1, len(segment_probs) + 1),
-                "Depression Risk": segment_probs
-            })
-            st.line_chart(chart_data, x="Segment", y="Depression Risk")
-            st.caption("Values > 0.5 indicate depressive features.")
+            st.markdown("**Risk Timeline (Per Segment)**")
+            if len(segment_probs) > 0:
+                chart_data = pd.DataFrame({
+                    "Segment (3s)": range(1, len(segment_probs) + 1),
+                    "Risk Score": segment_probs
+                })
+                st.line_chart(chart_data, x="Segment (3s)", y="Risk Score")
+                st.caption(f"Values above {THRESHOLD} contribute to an 'At Risk' classification.")
             
-            st.info("💡 **Why?** The model detected acoustic patterns (Pitch Variability, MFCCs) consistent with the training data.")
+            with st.expander("ℹ️ How does this work?"):
+                st.write("""
+                **Model:** Stacking Ensemble (Ridge Meta-Learner)
+                **Features:** 130+ Acoustic Biomarkers
+                **Key Indicators:**
+                * **Monotonicity:** Low Standard Deviation in Pitch.
+                * **Spectral Flatness:** Breathy/Weak voice quality.
+                * **Jitter/Shimmer:** Micro-tremors in vocal cords.
+                """)

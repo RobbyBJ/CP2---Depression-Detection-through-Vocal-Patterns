@@ -1,204 +1,164 @@
+import os
 import pandas as pd
 import numpy as np
 import joblib
-import time
+from sklearn.model_selection import GridSearchCV, StratifiedGroupKFold
 from sklearn.preprocessing import StandardScaler
 from sklearn.impute import SimpleImputer
-from sklearn.model_selection import RandomizedSearchCV, StratifiedKFold
-from sklearn.metrics import accuracy_score, classification_report, f1_score, confusion_matrix
-
-# --- CRITICAL IMPORTS FOR SMOTE ---
+from sklearn.decomposition import PCA 
+from imblearn.pipeline import Pipeline as ImbPipeline
 from imblearn.over_sampling import SMOTE
-from imblearn.pipeline import Pipeline as ImbPipeline # <--- RENAME TO AVOID CONFUSION
+from sklearn.metrics import f1_score, make_scorer
 
-# --- IMPORT MODELS ---
-from sklearn.svm import SVC
-from sklearn.ensemble import RandomForestClassifier
+# --- MODELS ---
 from sklearn.linear_model import LogisticRegression
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.svm import SVC
 from sklearn.neighbors import KNeighborsClassifier
 from xgboost import XGBClassifier
 
 # ================= CONFIGURATION =================
-INPUT_CSV = r"C:\Users\User\Desktop\CP2\depression_dataset.csv"
-TRAIN_SPLIT_CSV = r"C:\Users\User\Desktop\DAIC-WOZ\train_split_Depression_AVEC2017.csv"
-DEV_SPLIT_CSV   = r"C:\Users\User\Desktop\DAIC-WOZ\dev_split_Depression_AVEC2017.csv"
-
+TRAIN_DATASET = r"C:\Users\User\Desktop\CP2\depression_train_dataset.csv"
+MODEL_SAVE_DIR = r"C:\Users\User\Desktop\CP2\tuned_models"
 RANDOM_STATE = 42
-N_ITER_SEARCH = 15 
+N_JOBS = -1
 # =================================================
 
-def calculate_specificity(y_true, y_pred):
-    tn, fp, fn, tp = confusion_matrix(y_true, y_pred).ravel()
-    return tn / (tn + fp) if (tn + fp) > 0 else 0
+def ensure_dir(path):
+    if not os.path.exists(path):
+        os.makedirs(path)
 
-def tune_model_with_smote(name, model, param_grid, X, y):
-    print(f"\n🔎 TUNING {name.upper()} (WITH SMOTE)...")
-    start = time.time()
-    
-    cv = StratifiedKFold(n_splits=3, shuffle=True, random_state=RANDOM_STATE)
-    
-    # --- PIPELINE WITH SMOTE ---
-    # 1. Impute missing values
-    # 2. Scale features
-    # 3. SMOTE (Generates fake depressed samples to balance classes)
-    # 4. Classifier
-    pipeline = ImbPipeline([
-        ('imputer', SimpleImputer(strategy='mean')),
-        ('scaler', StandardScaler()),
-        ('smote', SMOTE(random_state=RANDOM_STATE)), 
-        ('clf', model)
-    ])
-    
-    # Prefix params with 'clf__' so the tuner knows they belong to the model step
-    grid_prefixed = {f'clf__{k}': v for k, v in param_grid.items()}
-    
-    search = RandomizedSearchCV(
-        estimator=pipeline,
-        param_distributions=grid_prefixed,
-        n_iter=N_ITER_SEARCH,
-        scoring='f1', # Still optimizing for F1
-        cv=cv,
-        n_jobs=-1,
-        random_state=RANDOM_STATE,
-        verbose=1
-    )
-    
-    search.fit(X, y)
-    elapsed = time.time() - start
-    
-    print(f"   ✅ Best {name} Params: {search.best_params_}")
-    print(f"   📊 Best CV F1 Score: {search.best_score_:.4f}")
-    print(f"   ⏱️ Tuning took: {elapsed:.1f}s")
-    
-    return search.best_estimator_
+def main():
+    print("🚀 STARTING HYPERPARAMETER TUNING PIPELINE (Wav2Vec + PCA Edition)...")
+    ensure_dir(MODEL_SAVE_DIR)
 
-def run_tuning_smote():
-    print("🚀 LOADING DATASET (OFFICIAL SPLITS)...")
-    df = pd.read_csv(INPUT_CSV)
-    
-    try:
-        train_ids = pd.read_csv(TRAIN_SPLIT_CSV)['Participant_ID'].values
-        dev_ids = pd.read_csv(DEV_SPLIT_CSV)['Participant_ID'].values
-    except Exception as e:
-        print(f"❌ Error loading splits: {e}")
+    if not os.path.exists(TRAIN_DATASET):
+        print(f"❌ Error: Dataset not found at {TRAIN_DATASET}")
         return
 
-    train_df = df[df['participant_id'].isin(train_ids)]
-    test_df = df[df['participant_id'].isin(dev_ids)]
+    # 1️⃣ Load dataset
+    df = pd.read_csv(TRAIN_DATASET)
     
-    X_train = train_df.drop(columns=['PHQ8_Binary', 'participant_id'], errors='ignore')
-    y_train = train_df['PHQ8_Binary']
-    
-    X_test = test_df.drop(columns=['PHQ8_Binary', 'participant_id'], errors='ignore')
-    y_test = test_df['PHQ8_Binary']
+    # CRITICAL: Extract Groups before dropping columns
+    if "participant_id" in df.columns:
+        groups = df["participant_id"]
+    else:
+        print("⚠️ Warning: 'participant_id' missing. GroupKFold cannot be used (Leakage Risk!).")
+        groups = None
 
-    print(f"   Train Segments: {len(X_train)}")
-    print(f"   Test (Dev) Segments: {len(X_test)}")
+    # Drop non-feature columns
+    X = df.drop(columns=["PHQ8_Binary", "participant_id", "filename"], errors="ignore")
+    y = df["PHQ8_Binary"]
 
-    # Calculate Scale Weight (Just in case we want to try it alongside SMOTE)
-    neg_count = np.sum(y_train == 0)
-    pos_count = np.sum(y_train == 1)
-    scale_weight = neg_count / pos_count if pos_count > 0 else 1.0
+    print(f"✅ Loaded training dataset: {len(X)} samples")
+    print(f"   Features: {X.shape[1]} (Should be ~768 for Wav2Vec)")
+    print(f"   Class distribution: {y.value_counts().to_dict()}")
 
-    # ==========================================
-    # DEFINING GRIDS
-    # Note: We relax class_weights because SMOTE balances the data already.
-    # ==========================================
-    
-    svm_params = {
-        'C': [0.1, 1, 10, 50, 100],
-        'gamma': ['scale', 0.1, 0.01],
-        'kernel': ['rbf'],
-        # SMOTE handles balance, so we usually set class_weight to None, 
-        # but we can try both.
-        'class_weight': [None, 'balanced'] 
+    # 2️⃣ Define models and their grids
+    param_grids = {
+        "Logistic Regression": {
+            "classifier__C": [0.01, 0.1, 1],
+            "classifier__solver": ["lbfgs"]
+        },
+        "SVM": {
+            # PCA makes SVM fast enough to try both kernels again
+            "classifier__C": [1, 10], 
+            "classifier__kernel": ["rbf"] 
+        },
+        "Random Forest": {
+            "classifier__n_estimators": [100, 200],
+            "classifier__max_depth": [10, 20],
+        },
+        "XGBoost": {
+            "classifier__n_estimators": [100, 200],
+            "classifier__learning_rate": [0.05, 0.1],
+            "classifier__max_depth": [4, 6],
+        },
+        "KNN": {
+            "classifier__n_neighbors": [5, 9],
+            "classifier__weights": ["uniform"]
+        }
     }
 
-    rf_params = {
-        'n_estimators': [100, 200, 300],
-        'max_depth': [None, 10, 20],
-        'min_samples_leaf': [1, 2, 4]
+    base_models = {
+        "Logistic Regression": LogisticRegression(max_iter=1000, class_weight="balanced", random_state=RANDOM_STATE),
+        "SVM": SVC(probability=True, class_weight="balanced", random_state=RANDOM_STATE),
+        "Random Forest": RandomForestClassifier(class_weight="balanced", random_state=RANDOM_STATE),
+        "KNN": KNeighborsClassifier(),
+        "XGBoost": XGBClassifier(
+            random_state=RANDOM_STATE,
+            tree_method="hist",
+            eval_metric="logloss",
+        )
     }
-
-    lr_params = {
-        'C': [0.01, 0.1, 1, 10],
-        'solver': ['liblinear'],
-        'class_weight': [None, 'balanced']
-    }
-
-    knn_params = {
-        'n_neighbors': [3, 5, 7, 11],
-        'weights': ['uniform', 'distance']
-    }
-
-    xgb_params = {
-        'n_estimators': [100, 200, 300],
-        'max_depth': [3, 6, 8],
-        'learning_rate': [0.05, 0.1, 0.2],
-        'subsample': [0.8, 1.0],
-        # Since SMOTE balances data, scale_pos_weight should ideally be 1.
-        # But we let the tuner decide if it wants "Super Aggressive" (SMOTE + Weight)
-        'scale_pos_weight': [1, scale_weight] 
-    }
-
-    # ==========================================
-    # RUN TUNING
-    # ==========================================
-    
-    models_to_tune = [
-        ("SVM", SVC(probability=True, random_state=RANDOM_STATE), svm_params),
-        ("Random Forest", RandomForestClassifier(n_jobs=-1, random_state=RANDOM_STATE), rf_params),
-        ("Logistic Regression", LogisticRegression(max_iter=1000, random_state=RANDOM_STATE), lr_params),
-        ("KNN", KNeighborsClassifier(n_jobs=-1), knn_params),
-        ("XGBoost", XGBClassifier(tree_method='hist', device='cuda', use_label_encoder=False, eval_metric='logloss', random_state=RANDOM_STATE), xgb_params)
-    ]
 
     results = []
-    
-    print("\n⚔️ STARTING HYPERPARAMETER TUNING (WITH SMOTE)...")
-    
-    for name, model, grid in models_to_tune:
-        try:
-            # 1. Tune
-            best_estimator = tune_model_with_smote(name, model, grid, X_train, y_train)
-            
-            # 2. Evaluate
-            y_pred = best_estimator.predict(X_test)
-            
-            # 3. Metrics
-            acc = accuracy_score(y_test, y_pred)
-            f1 = f1_score(y_test, y_pred)
-            spec = calculate_specificity(y_test, y_pred)
-            report = classification_report(y_test, y_pred, output_dict=True)
-            recall = report['1']['recall'] if '1' in report else 0.0
-            
-            results.append({
-                'Model': name,
-                'Accuracy': acc,
-                'F1-Score': f1,
-                'Recall': recall,
-                'Specificity': spec,
-                'Best Params': str(best_estimator.named_steps['clf'].get_params())
-            })
-            
-            # Save the Tuned Model
-            joblib.dump(best_estimator, f"best_tuned_smote_{name.replace(' ', '_')}.pkl")
-            
-        except Exception as e:
-            print(f"❌ Failed to tune {name}: {e}")
 
-    # ==========================================
-    # FINAL LEADERBOARD
-    # ==========================================
+    # 3️⃣ Perform tuning for each model
+    for name, model in base_models.items():
+        print(f"\n🔍 Tuning {name}...")
+
+        # --- BUILD PIPELINE DYNAMICALLY ---
+        # 1. Base steps (Imputer -> Scaler -> SMOTE)
+        steps = [
+            ("imputer", SimpleImputer(strategy="mean")),
+            ("scaler", StandardScaler()),
+            ("smote", SMOTE(random_state=RANDOM_STATE)),
+        ]
+        
+        # 2. OPTIMIZATION: Add PCA only for slow models (SVM & KNN)
+        if name in ["SVM", "KNN"]:
+            print(f"   👉 Adding PCA (0.95 variance) to speed up {name}...")
+            steps.append(("pca", PCA(n_components=0.90))) 
+
+        # 3. Add the classifier
+        steps.append(("classifier", model))
+
+        pipeline = ImbPipeline(steps)
+
+        # 4. Stratified Group K-Fold (Prevents Leakage)
+        cv_strategy = StratifiedGroupKFold(n_splits=5)
+
+        grid = GridSearchCV(
+            estimator=pipeline,
+            param_grid=param_grids.get(name, {}),
+            scoring=make_scorer(f1_score),
+            n_jobs=N_JOBS,
+            cv=cv_strategy, 
+            verbose=2
+        )
+
+        # 5. Fit with Groups
+        if groups is not None:
+            grid.fit(X, y, groups=groups)
+        else:
+            grid.fit(X, y)
+
+        best_model = grid.best_estimator_
+        best_params = grid.best_params_
+        best_score = grid.best_score_
+
+        print(f"✅ Best F1-score: {best_score:.4f}")
+        print(f"🏆 Best Parameters: {best_params}")
+
+        # Save tuned model
+        save_path = os.path.join(MODEL_SAVE_DIR, f"tuned_{name.replace(' ', '_')}.pkl")
+        joblib.dump(best_model, save_path)
+        print(f"💾 Saved model to: {save_path}")
+
+        results.append({
+            "Model": name,
+            "Best F1-Score": best_score,
+            "Best Params": best_params
+        })
+
+    # 4️⃣ Save all results
     results_df = pd.DataFrame(results)
-    results_df = results_df.sort_values(by='F1-Score', ascending=False)
-    
-    print("\n🏆 TUNED BASELINE LEADERBOARD (WITH SMOTE) 🏆")
-    cols = ['Model', 'Accuracy', 'F1-Score', 'Recall', 'Specificity']
-    print(results_df[cols].to_string(index=False))
-    
-    results_df.to_csv("tuned_baseline_results_smote.csv", index=False)
-    print("\n✅ Results saved to 'tuned_baseline_results_smote.csv'")
+    results_df = results_df.sort_values(by="Best F1-Score", ascending=False)
+    results_df.to_csv(os.path.join(MODEL_SAVE_DIR, "tuned_model_summary.csv"), index=False)
+
+    print("\n🏁 All models tuned and saved successfully!")
+    print(results_df)
 
 if __name__ == "__main__":
-    run_tuning_smote()
+    main()

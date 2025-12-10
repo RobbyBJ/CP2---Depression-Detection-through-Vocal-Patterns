@@ -1,6 +1,0 @@
-Model,Accuracy,F1-Score,Recall (Sensitivity),Precision,Specificity,Best Params
-Logistic Regression,0.5196310935441371,0.3444804027328299,0.4917864476386037,0.2650802434975097,0.5292449485997873,"{'classifier__C': 0.1, 'classifier__solver': 'liblinear'}"
-SVM,0.5530961791831357,0.273972602739726,0.32854209445585214,0.23494860499265785,0.63062743707905,"{'classifier__C': 10, 'classifier__gamma': 'scale', 'classifier__kernel': 'rbf'}"
-KNN,0.5812911725955204,0.26058631921824105,0.2874743326488706,0.23829787234042554,0.6827366182204891,"{'classifier__n_neighbors': 7, 'classifier__weights': 'distance'}"
-Naive Bayes,0.5085638998682477,0.20604512558535548,0.24845995893223818,0.176,0.598369372562921,{'classifier__var_smoothing': 1e-09}
-Random Forest,0.5625823451910409,0.19806763285024154,0.2104722792607803,0.18704379562043796,0.6841545551222971,"{'classifier__max_depth': 20, 'classifier__min_samples_split': 10, 'classifier__n_estimators': 200}"
