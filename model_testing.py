@@ -7,11 +7,11 @@ from sklearn.metrics import (
 )
 
 # ================= CONFIGURATION =================
-TEST_DATASET = r"C:\Users\User\Desktop\CP2\depression_test_dataset_v2.csv"
-MODEL_DIR = r"C:\Users\User\Desktop\CP2\ensemble_model_v2"
-OUTPUT_RESULTS = r"C:\Users\User\Desktop\CP2\stacking_ensemble_v2.csv"
+TEST_DATASET = r"C:\Users\User\Desktop\CP2\depression_test_dataset.csv"
+MODEL_DIR = r"C:\Users\User\Desktop\CP2\ensemble_model"
+OUTPUT_RESULTS = r"C:\Users\User\Desktop\CP2\ensemble__results.csv"
 
-#  MANUAL THRESHOLD SETTING
+#  MANUAL THRESHOLD SETTIN
 MANUAL_THRESHOLD = 0.50
 # =================================================
 

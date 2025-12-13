@@ -9,13 +9,13 @@ from sklearn.metrics import accuracy_score, recall_score, f1_score
 
 # ================= CONFIGURATION =================
 # 1. Path to train dataset
-TRAIN_CSV = r"C:\Users\User\Desktop\CP2\depression_train_dataset_v2.csv"
+TRAIN_CSV = r"C:\Users\User\Desktop\CP2\depression_train_dataset.csv"
 
 # 2. Path to tuned models
-TUNED_MODEL_DIR = r"C:\Users\User\Desktop\CP2\tuned_models_v2"
+TUNED_MODEL_DIR = r"C:\Users\User\Desktop\CP2\tuned_models"
 
 # 3. Output for the Final Ensemble model
-OUTPUT_DIR = r"C:\Users\User\Desktop\CP2\ensemble_model_v2"
+OUTPUT_DIR = r"C:\Users\User\Desktop\CP2\ensemble_model"
 # =================================================
 
 os.makedirs(OUTPUT_DIR, exist_ok=True)

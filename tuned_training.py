@@ -13,12 +13,14 @@ from sklearn.ensemble import RandomForestClassifier
 from sklearn.linear_model import LogisticRegression
 from sklearn.neighbors import KNeighborsClassifier
 from xgboost import XGBClassifier
+from imblearn.pipeline import Pipeline as ImbPipeline
+from imblearn.over_sampling import SMOTE
 
 # ================= CONFIGURATION =================
-# Uses your new V2 dataset (5s segments)
-TRAIN_CSV = r"C:\Users\User\Desktop\CP2\depression_train_dataset_v2.csv"
-MODEL_OUTPUT_DIR = r"C:\Users\User\Desktop\CP2\tuned_models_v2" 
+TRAIN_CSV = r"C:\Users\User\Desktop\CP2\depression_train_dataset.csv"
+MODEL_OUTPUT_DIR = r"C:\Users\User\Desktop\CP2\tuned_models" 
 RANDOM_STATE = 42
+SENSITIVE_WEIGHTS = {0: 1.0, 1: 2.0}
 # =================================================
 
 os.makedirs(MODEL_OUTPUT_DIR, exist_ok=True)
@@ -54,7 +56,7 @@ def run_tuning():
     
     MODEL_PARAMS = {
         'SVM': {
-            'model': SVC(probability=True, random_state=RANDOM_STATE, class_weight='balanced'),
+            'model': SVC(probability=True, random_state=RANDOM_STATE, class_weight=SENSITIVE_WEIGHTS),
             'params': {
                 'classifier__C': [0.1, 1, 10],
                 'classifier__kernel': ['rbf'],
@@ -62,7 +64,7 @@ def run_tuning():
             }
         },
         'RandomForest': {
-            'model': RandomForestClassifier(random_state=RANDOM_STATE, n_jobs=-1, class_weight='balanced'),
+            'model': RandomForestClassifier(random_state=RANDOM_STATE, n_jobs=-1, class_weight=SENSITIVE_WEIGHTS),
             'params': {
                 'classifier__n_estimators': [100, 200],
                 'classifier__max_depth': [10, 20],
@@ -71,24 +73,28 @@ def run_tuning():
             }
         },
         'LogisticRegression': {
-            'model': LogisticRegression(random_state=RANDOM_STATE, max_iter=2000, class_weight='balanced'),
+            'model': LogisticRegression(random_state=RANDOM_STATE, max_iter=2000, class_weight=SENSITIVE_WEIGHTS),
             'params': {
                 'classifier__C': [0.01, 0.1, 1, 10],
                 'selector__n_features_to_select': [20, 30, 40]
             }
         },
         'KNN': {
-            'model': KNeighborsClassifier(),
+        'model': ImbPipeline([
+            ('sampler', SMOTE(random_state=RANDOM_STATE, k_neighbors=5)),
+            ('classifier', KNeighborsClassifier())
+        ]),
+     
             'params': {
-                'classifier__n_neighbors': [5, 9, 13], # Tune neighbors
-                'classifier__weights': ['uniform', 'distance'],
-                'selector__n_features_to_select': [20, 30, 40]
+                'classifier__classifier__n_neighbors': [5, 7, 9, 11], 
+                'classifier__classifier__weights': ['uniform', 'distance'],
+                'selector__n_features_to_select': [20, 30, 40] 
             }
         },
         'XGBoost': {
             'model': XGBClassifier(
                 tree_method='hist', eval_metric='logloss', random_state=RANDOM_STATE,
-                scale_pos_weight=scale_pos_weight
+                scale_pos_weight=3.0
             ),
             'params': {
                 'classifier__learning_rate': [0.01, 0.1],

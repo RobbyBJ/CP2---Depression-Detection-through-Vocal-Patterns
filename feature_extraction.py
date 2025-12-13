@@ -5,15 +5,15 @@ import opensmile
 from tqdm import tqdm
 
 # ================= CONFIGURATION =================
-PROCESSED_AUDIO_DIR = r"C:\Users\User\Desktop\processed_balanced_v2" 
+PROCESSED_AUDIO_DIR = r"C:\Users\User\Desktop\processed_audio_files" 
 
 # Labels Paths
 TRAIN_LABELS = r"C:\Users\User\Desktop\DAIC-WOZ\train_split_Depression_AVEC2017.csv"
 DEV_LABELS = r"C:\Users\User\Desktop\DAIC-WOZ\dev_split_Depression_AVEC2017.csv"
 
 # Output Files
-OUTPUT_TRAIN = r"C:\Users\User\Desktop\CP2\depression_train_dataset_v2.csv"
-OUTPUT_TEST = r"C:\Users\User\Desktop\CP2\depression_test_dataset_v2.csv"
+OUTPUT_TRAIN = r"C:\Users\User\Desktop\CP2\depression_train_dataset.csv"
+OUTPUT_TEST = r"C:\Users\User\Desktop\CP2\depression_test_dataset.csv"
 
 # Logic Settings
 MIN_SEGMENTS = 5  # To skip empty/broken folders

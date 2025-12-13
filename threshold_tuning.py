@@ -2,26 +2,24 @@ import os
 import joblib
 import pandas as pd
 import numpy as np
-from sklearn.metrics import accuracy_score, recall_score, f1_score, confusion_matrix
+from sklearn.metrics import accuracy_score, recall_score, f1_score, confusion_matrix, precision_score
 
 # ================= CONFIGURATION =================
 TEST_CSV = r"C:\Users\User\Desktop\CP2\depression_test_dataset.csv"
-
-# Path to your Final Ensemble Model
+# Make sure this points to your latest trained model
 MODEL_PATH = r"C:\Users\User\Desktop\CP2\ensemble_model\stacking_ensemble.pkl"
 # =================================================
 
 def calculate_specificity(y_true, y_pred):
-    
     tn, fp, fn, tp = confusion_matrix(y_true, y_pred).ravel()
     return tn / (tn + fp) if (tn + fp) > 0 else 0
 
 def diagnose_and_tune():
-    print("🚀 DIAGNOSING ENSEMBLE MODEL...")
+    print("🚀 DIAGNOSING ENSEMBLE MODEL (With Precision)...")
     
     # 1. Load Data & Model
     if not os.path.exists(TEST_CSV) or not os.path.exists(MODEL_PATH):
-        print("❌ Error: Files not found.")
+        print(f"❌ Error: Files not found.\nCSV: {TEST_CSV}\nModel: {MODEL_PATH}")
         return
 
     df = pd.read_csv(TEST_CSV)
@@ -60,8 +58,9 @@ def diagnose_and_tune():
 
     # 4. Threshold Tuning Loop
     print("\n🎛️ TUNING THRESHOLD...")
-    print(f"{'Threshold':<10} | {'Sens (Recall)':<14} | {'Spec':<10} | {'F1':<10} | {'Acc':<10}")
-    print("-" * 65)
+    # Added 'Prec' column header
+    print(f"{'Threshold':<10} | {'Sens':<8} | {'Spec':<8} | {'Prec':<8} | {'F1':<8} | {'Acc':<8}")
+    print("-" * 75)
 
     best_f1 = 0
     best_res = None
@@ -71,23 +70,28 @@ def diagnose_and_tune():
     for thresh in np.arange(0.20, 0.60, 0.02):
         y_pred = (y_probs >= thresh).astype(int)
         
-        sens = recall_score(y_true, y_pred)
+        # Metrics
+        sens = recall_score(y_true, y_pred, zero_division=0)
         spec = calculate_specificity(y_true, y_pred)
-        f1 = f1_score(y_true, y_pred)
+        prec = precision_score(y_true, y_pred, zero_division=0) # <--- ADDED PRECISION
+        f1 = f1_score(y_true, y_pred, zero_division=0)
         acc = accuracy_score(y_true, y_pred)
         
-        print(f"{thresh:.2f}       | {sens:.2%}       | {spec:.2%}   | {f1:.2f}       | {acc:.2%}")
+        # Print Row
+        print(f"{thresh:.2f}       | {sens:.2%} | {spec:.2%} | {prec:.2%} | {f1:.2f}     | {acc:.2%}")
 
+        # You can change the condition below to optimize for what you want (e.g. Sensitivity > 0.50)
         if f1 > best_f1:
             best_f1 = f1
-            best_res = (thresh, sens, spec, f1, acc)
+            best_res = (thresh, sens, spec, prec, f1, acc)
 
-    print("-" * 65)
+    print("-" * 75)
     if best_res:
-        t, s, sp, f, a = best_res
-        print(f"🏆 OPTIMAL RESULT FOUND AT THRESHOLD {t:.2f}:")
+        t, s, sp, p, f, a = best_res
+        print(f"🏆 OPTIMAL RESULT (Best F1) AT THRESHOLD {t:.2f}:")
         print(f"   Sensitivity: {s:.2%}")
         print(f"   Specificity: {sp:.2%}")
+        print(f"   Precision:   {p:.2%}")
         print(f"   F1-Score:    {f:.2f}")
         print(f"   Accuracy:    {a:.2%}")
     else:

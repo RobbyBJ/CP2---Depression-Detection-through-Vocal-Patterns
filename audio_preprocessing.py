@@ -10,7 +10,7 @@ from tqdm import tqdm
 
 # ================= CONFIGURATION =================
 DATASET_DIR = r"C:\Users\User\Desktop\DAIC-WOZ"
-OUT_DIR = r"C:\Users\User\Desktop\processed_balanced_v2"
+OUT_DIR = r"C:\Users\User\Desktop\processed_audio_files"
 
 # Path to the label files
 TRAIN_LABELS = r"C:\Users\User\Desktop\DAIC-WOZ\train_split_Depression_AVEC2017.csv"
